@@ -106,6 +106,7 @@ class BaseClient(BaseMixin, ABC, Generic[ClientT]):
             request_timeout=self.extra_config.request_timeout,
             log_level=self.extra_config.log_level,
             telemetry=self.extra_config.telemetry,
+            interactive=self.extra_config.interactive,
             sync=self.extra_config.sync,
             store=self.extra_config.store,
             proxy=self.extra_config.proxy,

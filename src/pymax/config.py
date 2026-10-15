@@ -221,6 +221,9 @@ class ExtraConfig(BaseModel):
         request_timeout: Timeout API-запросов в секундах.
         log_level: Уровень логов ``pymax``.
         telemetry: Отправлять telemetry-события Max.
+        interactive: Помечать login и ping как активность пользователя.
+            ``False`` — фоновая сессия, которая не выдает себя за открытое
+            приложение. По умолчанию ``True``.
         store: Пользовательское хранилище сессии. Используется только при
             ``persist_session=True``.
         sync: Переопределения sync-маркеров для login.
@@ -265,6 +268,7 @@ class ExtraConfig(BaseModel):
     request_timeout: float = 30.0
     log_level: str = "INFO"
     telemetry: bool = True
+    interactive: bool = True
 
     store: StoreProtocol | None = None
 
