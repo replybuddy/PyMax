@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from pymax.auth.base import AuthFlow
 from pymax.exceptions import ApiError
 from pymax.logging import get_logger
+from pymax.protocol.enums import Opcode
 
 from .models import AuthResult
 from .providers import ConsolePasswordProvider, PasswordProvider, QrHandler
@@ -121,10 +122,14 @@ class QrAuthFlow(AuthFlow):
                 response = await app.api.auth.check_password(track_id, password)
             except ApiError as e:
                 logger.error("2fa password check failed: %s", e)
+                await self._password_rejected(e)
                 continue
 
             if response.error:
                 logger.error("2fa password check failed error=%s", response.error)
+                await self._password_rejected(
+                    ApiError(opcode=Opcode.AUTH_LOGIN_CHECK_PASSWORD, error=response.error)
+                )
                 continue
 
             if response.login_token:
@@ -132,3 +137,14 @@ class QrAuthFlow(AuthFlow):
                 return response.login_token
 
             logger.error("2fa password response did not contain login token; retrying")
+
+    async def _password_rejected(self, error: ApiError) -> None:
+        """Отдает отказ Max provider-у, если тот реализует ``password_rejected``.
+
+        Provider узнает причину (``error.error``, например
+        ``password2fa.wrong``) и может прервать авторизацию исключением;
+        без метода flow просто спрашивает пароль снова.
+        """
+        rejected = getattr(self.password_provider, "password_rejected", None)
+        if rejected is not None:
+            await rejected(error)
