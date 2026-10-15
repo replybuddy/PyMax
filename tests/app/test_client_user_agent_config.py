@@ -45,3 +45,27 @@ async def test_web_client_background_session_is_not_interactive() -> None:
 
     assert config.interactive is False
     assert (await WebClient()._prepare_config()).interactive is True
+
+
+@pytest.mark.asyncio
+async def test_web_client_exposes_its_session_and_connection_loss() -> None:
+    from types import SimpleNamespace
+
+    from pymax.session.models import SessionInfo
+    from pymax.types.domain.sync import SyncState
+
+    client = WebClient()
+    before_connect = client.session
+
+    async def lost() -> None:
+        raise ConnectionError("Connection lost")
+
+    client._app = SimpleNamespace(
+        session=SessionInfo(token="t", device_id="d", phone="", sync=SyncState(chats_sync=42))
+    )
+    client._connection = SimpleNamespace(wait_closed=lost)
+
+    assert before_connect is None
+    assert client.session.sync.chats_sync == 42
+    with pytest.raises(ConnectionError):
+        await client.wait_closed()
