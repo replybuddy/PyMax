@@ -24,6 +24,7 @@ if TYPE_CHECKING:
         StartDecorator,
     )
     from pymax.protocol import InboundFrame
+    from pymax.session.models import SessionInfo
     from pymax.types import (
         Chat,
         MessageDeleteEvent,
@@ -82,6 +83,20 @@ class BaseClient(BaseMixin, ABC, Generic[ClientT]):
     @property
     def is_connected(self) -> bool:
         return self.__app is not None and self.__app.connection.is_open
+
+    @property
+    def session(self) -> SessionInfo | None:
+        """Сессия после login: token, device и sync-маркеры. Нужна, если
+        сессию хранит приложение, а не ``store`` PyMax. ``None`` до connect."""
+        return self.__app.session if self.__app is not None else None
+
+    async def wait_closed(self) -> None:
+        """Ждет закрытия соединения после :meth:`connect`.
+
+        Возвращается при штатном закрытии; при потере соединения поднимает
+        ``ConnectionError``.
+        """
+        await self._connection.wait_closed()
 
     def _build_config(
         self,
