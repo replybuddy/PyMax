@@ -35,3 +35,13 @@ async def test_web_client_config_restores_only_generated_user_agent_from_session
 
     assert generated_config.restore_user_agent_from_session is True
     assert explicit_config.restore_user_agent_from_session is False
+
+
+@pytest.mark.asyncio
+async def test_web_client_background_session_is_not_interactive() -> None:
+    background = WebClient(extra_config=ExtraConfig(interactive=False))
+
+    config = await background._prepare_config()
+
+    assert config.interactive is False
+    assert (await WebClient()._prepare_config()).interactive is True
