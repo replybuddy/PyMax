@@ -8,6 +8,7 @@ import pytest
 from pymax.auth.qr import QrAuthFlow
 from pymax.auth.sms import SmsAuthFlow
 from pymax.config import RegistrationConfig
+from pymax.exceptions import ApiError
 from pymax.types.domain.auth import (
     CheckCodeResponse,
     CheckPasswordResponse,
@@ -229,3 +230,75 @@ async def test_qr_auth_flow_shows_qr_polls_until_available_and_confirms() -> Non
         ("check_qr", ("qr-track",)),
         ("confirm_qr", ("qr-track",)),
     ]
+
+
+class WrongThenRightPasswordApi:
+    def __init__(self) -> None:
+        self.checked: list[str] = []
+
+    async def check_password(self, track_id: str, password: str):
+        self.checked.append(password)
+        if password != "secret":
+            raise ApiError(
+                opcode=115,
+                error="password2fa.wrong",
+                message="password wrong",
+                localized_message="Неверный пароль, попробуйте ещё раз",
+                title="Неверный пароль, попробуйте ещё раз",
+            )
+        return CheckPasswordResponse.model_validate({"tokenAttrs": {"LOGIN": {"token": "2fa-token"}}})
+
+
+class RejectionAwarePasswordProvider(SequencePasswordProvider):
+    def __init__(self, passwords: list[str], give_up: bool = False) -> None:
+        super().__init__(passwords)
+        self.rejections: list[str | None] = []
+        self.give_up = give_up
+
+    async def password_rejected(self, error: ApiError) -> None:
+        self.rejections.append(error.error)
+        if self.give_up:
+            raise error
+
+
+@pytest.mark.asyncio
+async def test_qr_2fa_reports_each_rejection_to_the_provider_and_retries() -> None:
+    api = WrongThenRightPasswordApi()
+    provider = RejectionAwarePasswordProvider(["wrong", "secret"])
+    app = SimpleNamespace(api=SimpleNamespace(auth=api))
+
+    token = await QrAuthFlow(QrProvider(), provider)._authenticate_with_password(app, "track", None)
+
+    assert token == "2fa-token"
+    assert api.checked == ["wrong", "secret"]
+    assert provider.rejections == ["password2fa.wrong"]
+
+
+@pytest.mark.asyncio
+async def test_qr_2fa_provider_can_stop_the_flow_on_rejection() -> None:
+    api = WrongThenRightPasswordApi()
+    provider = RejectionAwarePasswordProvider(["wrong", "secret"], give_up=True)
+    app = SimpleNamespace(api=SimpleNamespace(auth=api))
+
+    with pytest.raises(ApiError) as stopped:
+        await QrAuthFlow(QrProvider(), provider)._authenticate_with_password(app, "track", None)
+
+    assert stopped.value.error == "password2fa.wrong"
+    assert api.checked == ["wrong"]
+
+
+@pytest.mark.asyncio
+async def test_qr_2fa_rejection_in_reply_body_reaches_the_provider() -> None:
+    class ErrorBodyApi:
+        async def check_password(self, track_id: str, password: str):
+            if password == "secret":
+                return CheckPasswordResponse.model_validate({"tokenAttrs": {"LOGIN": {"token": "2fa-token"}}})
+            return CheckPasswordResponse.model_validate({"error": "some.error"})
+
+    provider = RejectionAwarePasswordProvider(["wrong", "secret"])
+    app = SimpleNamespace(api=SimpleNamespace(auth=ErrorBodyApi()))
+
+    token = await QrAuthFlow(QrProvider(), provider)._authenticate_with_password(app, "track", None)
+
+    assert token == "2fa-token"
+    assert provider.rejections == ["some.error"]
